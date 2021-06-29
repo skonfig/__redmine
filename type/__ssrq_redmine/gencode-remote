@@ -1,0 +1,165 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+version_ge() { printf '%s\n' "$1" "$2" | sort -t. -r -n | head -n1 | grep -qFx "$1"; }
+
+install_dir='/usr/local/share/redmine'
+redmine_user='redmine'
+
+gem_state=$(cat "${__object:?}/explorer/gem-state")
+cksum_is=$(cat "${__object:?}/explorer/archive-sum")
+migrations_state=$(cat "${__object:?}/explorer/db-migrations-state")
+
+version_should=$(cat "${__object:?}/parameter/version")
+
+IFS='	' read -r version_is _ cksum_should <<EOF
+$(
+	case ${version_should}
+	in
+		(latest)
+			tail -n 1 "${__type:?}/files/cksums.tsv"
+			;;
+		(*)
+			awk -F '\t' -v vers="${version_should}" '$1 == vers' "${__type:?}/files/cksums.tsv"
+			;;
+	esac
+)
+EOF
+
+
+RAILS_ENV=production
+
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+	export RAILS_ENV=$(quote "${RAILS_ENV}")
+
+	bundle_doas() {
+	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	  su -l $(quote "${redmine_user}") -s /bin/sh -c $(quote "cd $(quote "${install_dir:?}") && ")"\${_env% } bundle \$*"
+	  unset _env
+	}
+	EOF
+	_is_set_up=true
+}
+
+
+################################################################################
+
+if test "${gem_state}" != 'present' \
+	|| grep -q -e "^__file${install_dir:?}/config/database.yml:" "${__messages_in:?}"
+then
+	# Install dependencies
+	# (also after database.yml has changed because Gemfile uses it)
+
+	bundler_with=
+	bundler_without='development test'
+
+	if ! version_ge "${version_is}" 4.1
+	then
+		bundler_with="${bundler_with-}${bundler_with:+ }rmagick"
+	fi
+
+	gencode_setup
+	cat <<-EOF
+
+	test -d .bundle || mkdir .bundle
+	test -d vendor || mkdir vendor
+
+	# Clear Gemfile.lock
+	:>Gemfile.lock
+
+	# Change ownership of .bundle / vendor to make Ruby bundler happy.
+	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
+
+	bundle_doas install --path vendor/bundle\
+${bundler_with:+ --with ${bundler_with}}\
+${bundler_without:+ --without ${bundler_without}}
+
+	# Lock down .vendor / bundle directories
+	chown -R 0:0 .bundle vendor Gemfile.lock
+	EOF
+fi
+
+if test "${cksum_should}" != "${cksum_is}"
+then
+	# post-install / post-upgrade commands
+
+	gencode_setup
+	cat <<-EOF
+
+	# Set permissions for directories used by Redmine
+	for subdir in files log tmp tmp/pdf public/plugin_assets
+	do
+	  test -d "\${subdir}" || mkdir "\${subdir}"
+	  test ! -f "\${subdir}/delete.me" || rm -f "\${subdir}/delete.me"
+
+	  chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") "\${subdir}"
+	  chmod -R 755 "\${subdir}"
+
+	  # NOTE: If you have files in these directories (e.g. restore files from
+	  # backup), make sure these files are not executable.
+	  find "\${subdir}" -type f -exec chmod -x {} +
+	done
+
+	# Make db/ writable by the redmine user to make SQLite databases in the default location work.
+	chown 0:$(quote "${redmine_user:?}") db
+	chmod 0775 db
+	EOF
+
+	# Generate (session) secret token
+	gencode_setup
+	cat <<-EOF
+
+	# Secret (session) token
+	test -f config/initializers/secret_token.rb || {
+	  # NOTE: run as root, modifies config files
+	  bundle exec rake generate_secret_token
+
+	  chown 0:$(quote "${redmine_user:?}") config/initializers/secret_token.rb
+	  chmod 0750 config/initializers/secret_token.rb
+	}
+	EOF
+fi
+
+if test "${migrations_state}" != 'present' || test "${cksum_should}" != "${cksum_is}"
+then
+	# Run DB migrations (if explorer reports "down" migrations or the code has
+	# changed, in which case the explorers result is outdated)
+
+	gencode_setup
+	cat <<-EOF
+
+	# DB management
+	db_version=\$(bundle_doas exec rake db:version | sed -n -e 's/^Current version: \([0-9]*\)$/\1/p')
+
+	bundle_doas exec rake db:migrate  # as root, might create SQLite database file
+
+	if test \$((db_version)) -eq 0
+	then
+	  REDMINE_LANG=en
+	  export REDMINE_LANG
+	  bundle_doas exec rake redmine:load_default_data
+	fi
+	EOF
+fi

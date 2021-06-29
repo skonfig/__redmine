@@ -1,0 +1,57 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer checks if all DB migrations have been executed.
+#  prints 'present' if all migrations have been executed.
+#  prints 'absent' otherwise.
+#
+
+RAILS_ENV='production'
+
+redmine_user='redmine'
+install_dir='/usr/local/share/redmine'
+
+test -d "${install_dir:?}" || {
+	echo 'absent'
+	exit 0
+}
+
+command -v bundle >/dev/null 2>&1 || {
+	echo 'absent'
+	exit 0
+}
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+bundle_doas() {
+	su -l "${redmine_user}" -s /bin/sh -c "cd $(quote "${install_dir:?}") && RAILS_ENV=$(quote "${RAILS_ENV}") bundle $*"
+}
+
+cd "${install_dir:?}" || exit
+
+migrations=$(bundle_doas exec rake db:migrate:status) || {
+	echo 'absent'
+	exit 0
+}
+
+if printf '%s\n' "${migrations}" | grep -q -e '^ *down'
+then
+	echo 'absent'
+else
+	echo 'present'
+fi
