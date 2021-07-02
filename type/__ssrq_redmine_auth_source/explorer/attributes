@@ -1,0 +1,36 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer prints the attributes set on the auth source (if defined) in the format:
+# key=value
+#
+
+install_dir=/usr/local/share/redmine
+svc_user=redmine
+
+RAILS_ENV=production
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+rails_cmd() {
+	su -l "${svc_user}" -s /bin/sh -c "cd $(quote "${install_dir}") && RAILS_ENV=${RAILS_ENV} bundle exec rails runner $(quote "$*")"
+}
+
+: "${__object_id:?}"  # assert __object_id is set
+
+rails_cmd 'AuthSource.find_by(name: ENV["__object_id"])&.attributes&.sort&.each{ |k, v| puts [k, v].join("=") }'

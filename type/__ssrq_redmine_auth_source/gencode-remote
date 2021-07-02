@@ -1,0 +1,157 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+
+install_dir=/usr/local/share/redmine
+redmine_user=redmine
+RAILS_ENV=production
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export RAILS_ENV
+
+	rails_cmd() {  # does not quoting of arguments
+	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")' && RAILS_ENV='$(quote "${RAILS_ENV}")" bundle exec rails runner \$*"
+	}
+
+	EOF
+
+	_is_set_up=true
+}
+
+state_should=$(cat "${__object:?}/parameter/state")
+
+case ${state_should}
+in
+	(present)
+		attributes_should=$(
+			{
+				# Basic attributes
+				if test -s "${__object:?}/parameter/name"
+				then
+					printf 'name=%s\n' "$(head -n1 "${__object:?}/parameter/name")"
+				else
+					printf 'name=%s\n' "${__object_id:?}"
+				fi
+				printf 'type=%s\n' "$(head -n1 "${__object:?}/parameter/type")"
+
+				while read -r param_name col_name
+				do
+					if test -s "${__object:?}/parameter/${param_name}"
+					then
+						printf '%s=%s\n' "${col_name}" "$(head -n1 "${__object:?}/parameter/${param_name}")"
+					else
+						printf '%s=\n' "${col_name}"
+					fi
+				done <<-'EOF'
+				base-dn	base_dn
+				bind-dn	account
+				bind-pw	account_password
+				filter	filter
+				firstname-attr	attr_firstname
+				host	host
+				lastname-attr	attr_lastname
+				login-attr	attr_login
+				mail-attr	attr_mail
+				port	port
+				timeout	timeout
+				EOF
+
+				# Boolean parameters
+				if test -f "${__object:?}/parameter/ldaps"
+				then
+					echo tls=true
+				else
+					echo tls=false
+				fi
+				if test -f "${__object:?}/parameter/no-verify-peer"
+				then
+					echo verify_peer=false
+				else
+					echo verify_peer=true
+				fi
+				if test -f "${__object:?}/parameter/onthefly-register"
+				then
+					echo onthefly_register=true
+				else
+					echo onthefly_register=false
+				fi
+			} | sort -t= -k1
+		)
+
+		if printf '%s\n' "${attributes_should}" | cmp -s "${__object:?}/explorer/attributes" -
+		then
+			exit 0
+		fi
+
+		gencode_setup
+
+		cat <<-EOF
+		rails_cmd - <<'SCRIPT' 2<<'DATA'
+		lines = IO.for_fd(2).readlines()
+		attributes = lines.map(&:rstrip).map { |line| line.split('=', 2) }.to_h
+
+		attributes.delete('id')
+		source_name = attributes.delete('name')
+		source_type = attributes.delete('type')
+
+		s = AuthSource.find_by(name: source_name)
+		if s.nil?
+		    s = AuthSource.new_subclass_instance(source_type)
+		    s['name'] = source_name
+		end
+
+		# Assert type matches
+		if s['type'] != source_type
+		    exit 1
+		end
+
+		# Set/update attributes
+		# NOTE: Attribute types are ignored, hoping that they will be corrected on save.
+		attributes.each { |k, v| s[k] = v }
+
+		s.save!
+
+		SCRIPT
+		${attributes_should}
+		DATA
+		EOF
+		;;
+	(absent)
+		test -s "${__object:?}/explorer/attributes" || exit 0
+
+		# Delete auth source
+		gencode_setup
+
+		# shellcheck disable=SC2016
+		printf ': "${__object_id:?}"  # assert __object_id is set\n'
+
+		printf 'rails_cmd %s\n' "$(quote \''AuthSource.find_by(name: ENV["__object_id"]).delete'\')"
+		;;
+	(*)
+		printf 'Invalid state: %s\n' "${state_should}" >&2
+		exit 1
+		;;
+esac
