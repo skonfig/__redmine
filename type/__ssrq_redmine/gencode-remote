@@ -73,7 +73,7 @@ then
 	# Install dependencies
 	# (also after database.yml has changed because Gemfile uses it)
 
-	bundler_with=
+	bundler_with='ldap'  # used by __ssrq_redmine_auth_source
 	bundler_without='development test'
 
 	if ! version_ge "${version_is}" 4.1
