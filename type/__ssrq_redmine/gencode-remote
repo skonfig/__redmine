@@ -52,7 +52,8 @@ gencode_setup() {
 
 	cat <<-EOF
 	cd $(quote "${install_dir:?}") || exit
-	export RAILS_ENV=$(quote "${RAILS_ENV}")
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export RAILS_ENV
 
 	bundle_doas() {
 	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
@@ -96,8 +97,8 @@ then
 ${bundler_with:+ --with ${bundler_with}}\
 ${bundler_without:+ --without ${bundler_without}}
 
-	# Lock down .vendor / bundle directories
-	chown -R 0:0 .bundle vendor Gemfile.lock
+	# Lock down vendor directory to avoid unwanted "code changes""
+	chown -R 0:0 vendor
 	EOF
 fi
 
