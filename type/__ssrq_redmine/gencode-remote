@@ -52,11 +52,12 @@ gencode_setup() {
 
 	cat <<-EOF
 	cd $(quote "${install_dir:?}") || exit
+	BUNDLE_APP_CONFIG=$(quote "${install_dir:?}/.bundle")
 	RAILS_ENV=$(quote "${RAILS_ENV}")
-	export RAILS_ENV
+	export BUNDLE_APP_CONFIG RAILS_ENV
 
 	bundle_doas() {
-	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
 	  su -l $(quote "${redmine_user}") -s /bin/sh -c $(quote "cd $(quote "${install_dir:?}") && ")"\${_env% } bundle \$*"
 	  unset _env
 	}
@@ -93,7 +94,7 @@ then
 	# Change ownership of .bundle / vendor to make Ruby bundler happy.
 	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
 
-	bundle_doas install --path vendor/bundle\
+	bundle_doas install --no-color --path=$(quote "${install_dir:?}/vendor/bundle")\
 ${bundler_with:+ --with ${bundler_with}}\
 ${bundler_without:+ --without ${bundler_without}}
 
@@ -154,7 +155,7 @@ then
 	# DB management
 	db_version=\$(bundle_doas exec rake db:version | sed -n -e 's/^Current version: \([0-9]*\)$/\1/p')
 
-	bundle_doas exec rake db:migrate  # as root, might create SQLite database file
+	bundle_doas exec rake db:migrate
 
 	if test \$((db_version)) -eq 0
 	then
