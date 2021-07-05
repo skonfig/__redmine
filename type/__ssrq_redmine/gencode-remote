@@ -129,6 +129,14 @@ then
 	chmod 0775 db
 	EOF
 
+	# Clear tmp
+	gencode_setup
+	cat <<-EOF
+
+	# Clear tmp
+	bundle_doas exec rake tmp:clear
+	EOF
+
 	# Generate (session) secret token
 	gencode_setup
 	cat <<-EOF
