@@ -1,0 +1,158 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r plugin_name <"${__object:?}/parameter/name"
+else
+	plugin_name=${__object_id:?}
+fi
+
+install_dir=$(cat "${__object:?}/parameter/install-dir")
+plugin_dir="${install_dir:?}/plugins/${plugin_name:?}"
+redmine_user='redmine'
+state_should=$(cat "${__object:?}/parameter/state")
+
+source_state_is=$(cat "${__object:?}/explorer/plugin-dir-state")
+
+RAILS_ENV=production
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+	BUNDLE_APP_CONFIG=$(quote "${install_dir:?}/.bundle")
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export BUNDLE_APP_CONFIG RAILS_ENV
+
+	bundle_doas() {
+	    _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	    su -l $(quote "${redmine_user}") -s /bin/sh -c $(quote "cd $(quote "${install_dir:?}") && ")"\${_env% } bundle \$*"
+	    unset _env
+	}
+	EOF
+	_is_set_up=true
+}
+
+################################################################################
+# Ensure the plugin is managed by this cdist object
+
+if test "${state_should}" != 'absent' -a "${source_state_is}" = 'present-manual'
+then
+	cat <<-EOF
+	# Mark this plugin as managed by this cdist object
+	if test -f $(quote "${plugin_dir:?}/.cdist_managed_by") \\
+	&& ! printf '%s\n' $(quote "${__object_name:?}") | cmp -s $(quote "${plugin_dir:?}/.cdist_managed_by") -
+	then
+	    printf 'Redmine plugin at %s is already managed by: %s\n' \\
+	        $(quote "${plugin_dir:?}") \\
+	        "\$(cat $(quote "${plugin_dir:?}/.cdist_managed_by"))" >&2
+	    exit 1
+	fi
+	printf '%s\n' $(quote "${__object_name:?}") >$(quote "${plugin_dir:?}/.cdist_managed_by")
+
+	EOF
+fi
+
+
+################################################################################
+# Plugin dependencies
+
+gem_state=$(cat "${__object:?}/explorer/gem-state")
+
+if test "${state_should}" = 'present' -a "${gem_state}" != 'present'
+then
+	# Install plugin dependencies
+
+	gencode_setup
+	cat <<-EOF
+
+	# Change ownership of vendor/ to allow bundler to install gems.
+	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") vendor
+	# Allow bundler to update plugin Gemfile.lock
+	:>$(quote "plugins/${plugin_name}/Gemfile.lock")
+	chown $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") $(quote "plugins/${plugin_name}/Gemfile.lock")
+
+	bundle_doas install --no-color --path=$(quote "${install_dir:?}/vendor/bundle") --gemfile=$(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile")
+
+	# Lock down vendor/ and plugin's Gemfile.lock to avoid unwanted "code changes"
+	chown -R 0:0 vendor Gemfile.lock
+	chown 0:0 $(quote "plugins/${plugin_name}/Gemfile.lock")
+	EOF
+
+	echo 'installed gems' >>"${__messages_out:?}"
+fi
+
+
+################################################################################
+# Execute rake tasks for plugin
+
+case ${state_should}
+in
+	(present)
+		if ! cmp -s "${__object:?}/explorer/download-url" "${__object:?}/parameter/url"
+		then
+			# Run DB migrations and copy assets if source of plugin has changed.
+
+			gencode_setup
+
+			cat <<-EOF
+
+			# Execute DB migrations
+			bundle_doas exec rake redmine:plugins:migrate NAME=$(quote "${plugin_name:?}")
+			EOF
+
+			echo 'migrated db' >>"${__messages_out:?}"
+
+			cat <<-EOF
+
+			# Copy assets to public/ folder
+			bundle_doas exec rake redmine:plugins:assets NAME=$(quote "${plugin_name:?}")
+			EOF
+
+			echo 'copied assets' >>"${__messages_out:?}"
+		fi
+		;;
+	(absent)
+		if test "${source_state_is}" != 'absent'
+		then
+			# Clean up DB (revert DB migrations)
+
+			gencode_setup
+
+			cat <<-EOF
+
+			# Clean DB (undo DB migrations)
+			bundle_doas exec rake redmine:plugins:migrate NAME=$(quote "${plugin_name:?}") VERSION=0
+			EOF
+
+			echo 'cleaned db' >>"${__messages_out:?}"
+
+			# Delete assets from public/ folder
+
+			printf 'rm -r %s\n' "$(quote "${install_dir:?}/public/plugin_assets/${plugin_name}")"
+
+			echo 'removed assets' >>"${__messages_out:?}"
+		fi
+		;;
+esac

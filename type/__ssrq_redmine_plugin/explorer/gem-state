@@ -1,0 +1,49 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer checks if all required Gems are installed.
+#
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r plugin_name <"${__object:?}/parameter/name"
+else
+	plugin_name=${__object_id:?}
+fi
+
+install_dir=$(cat "${__object:?}/parameter/install-dir")
+plugin_dir="${install_dir:?}/plugins/${plugin_name}"
+
+test -d "${plugin_dir:?}" || {
+	echo 'absent'
+	exit 0
+}
+
+command -v bundle >/dev/null 2>&1 || {
+	echo 'absent'
+	exit 0
+}
+
+gemfile="${plugin_dir:?}/Gemfile"
+if (cd "${install_dir:?}" && BUNDLE_APP_CONFIG="${install_dir:?}/.bundle" bundle check --gemfile "${gemfile}") >/dev/null
+then
+	echo 'present'
+else
+	echo 'absent'
+fi

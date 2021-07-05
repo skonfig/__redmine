@@ -1,0 +1,95 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r plugin_name <"${__object:?}/parameter/name"
+else
+	plugin_name=${__object_id:?}
+fi
+
+case ${plugin_name}
+in
+	(*/*)
+		printf 'Invalid plugin name: %s\n' "${plugin_name}" >&2
+		echo 'The plugin name must not contain /.' >&2
+		exit 1
+esac
+
+install_dir=$(cat "${__object:?}/parameter/install-dir")
+state_should=$(cat "${__object:?}/parameter/state")
+
+plugin_dir="${install_dir:?}/plugins/${plugin_name}"
+
+read -r state_is <"${__object:?}/explorer/plugin-dir-state"
+
+if test "${state_is}" = 'conflict'
+then
+	# NOTE: Because there could potentially be multiple coexisting Redmine
+	# installations on a system and therefore there exists a --name parameter,
+	# uniqueness of plugin names is not given.
+	# If a plugin is managed by another cdist object we error.
+	: "${__type:?}"  # make shellcheck happy
+	printf '%s: conflict!' "${__type##*/}" >&2
+	printf 'Plugin %s is managed by cdist object %s.\n' \
+		"${plugin_name}" "$(tail -n +2 "${__object:?}/explorer/plugin-dir-state")" >&2
+	exit 1
+fi
+
+
+case ${state_should}
+in
+	(present)
+		if test -s "${__object:?}/parameter/url"
+		then
+			plugin_url=$(cat "${__object:?}/parameter/url")
+		else
+			echo 'Parameter --url is required.' >&2
+			exit 1
+		fi
+
+		if ! cmp -s "${__object:?}/explorer/download-url" "${__object:?}/parameter/url"
+		then
+			# download URL has changed -> re-download
+
+			__download "/tmp/${plugin_url##*/}" \
+				--url "${plugin_url}" \
+				--download remote
+
+			require="__download/tmp/${plugin_url##*/}" \
+			__unpack "/tmp/${plugin_url##*/}" \
+				--destination "${plugin_dir:?}" \
+				--sum-file "${plugin_dir:?}/.cdist__unpack_sum" \
+				--tar-strip 1 \
+				--tar-extra-args ' -o' \
+				--onchange "\
+printf '%s\\n' $(quote "$(cat "${__object:?}/parameter/url")") >$(quote "${plugin_dir:?}/.cdist__download_url")
+printf '%s\\n' $(quote "${__object_name:?}") >$(quote "${plugin_dir:?}/.cdist_managed_by")
+"
+		fi
+	;;
+	(absent)
+		# Delete plugin source directory after cleanup has been done in code-remote
+		require=${__object_name:?} \
+		__directory "${plugin_dir:?}" --state absent
+	;;
+esac
