@@ -47,61 +47,65 @@ case ${state_should}
 in
 	(present)
 		attributes_should=$(
-			{
-				# Basic attributes
-				if test -s "${__object:?}/parameter/name"
-				then
-					printf 'name=%s\n' "$(head -n1 "${__object:?}/parameter/name")"
-				else
-					printf 'name=%s\n' "${__object_id:?}"
-				fi
-				printf 'type=%s\n' "$(head -n1 "${__object:?}/parameter/type")"
+			# Basic attributes
+			if test -s "${__object:?}/parameter/name"
+			then
+				printf 'name=%s\n' "$(head -n1 "${__object:?}/parameter/name")"
+			else
+				printf 'name=%s\n' "${__object_id:?}"
+			fi
+			printf 'type=%s\n' "$(head -n1 "${__object:?}/parameter/type")"
 
-				while read -r param_name col_name
-				do
-					if test -s "${__object:?}/parameter/${param_name}"
-					then
-						printf '%s=%s\n' "${col_name}" "$(head -n1 "${__object:?}/parameter/${param_name}")"
-					else
-						printf '%s=\n' "${col_name}"
-					fi
-				done <<-'EOF'
-				base-dn	base_dn
-				bind-dn	account
-				bind-pw	account_password
-				filter	filter
-				firstname-attr	attr_firstname
-				host	host
-				lastname-attr	attr_lastname
-				login-attr	attr_login
-				mail-attr	attr_mail
-				port	port
-				timeout	timeout
-				EOF
+			while read -r param_name col_name
+			do
+				if test -s "${__object:?}/parameter/${param_name}"
+				then
+					printf '%s=%s\n' "${col_name}" "$(head -n1 "${__object:?}/parameter/${param_name}")"
+				else
+					printf '%s=\n' "${col_name}"
+				fi
+			done <<-'EOF'
+			base-dn	base_dn
+			bind-dn	account
+			bind-pw	account_password
+			filter	filter
+			firstname-attr	attr_firstname
+			host	host
+			lastname-attr	attr_lastname
+			login-attr	attr_login
+			mail-attr	attr_mail
+			port	port
+			timeout	timeout
+			EOF
 
-				# Boolean parameters
-				if test -f "${__object:?}/parameter/ldaps"
-				then
-					echo tls=true
-				else
-					echo tls=false
-				fi
-				if test -f "${__object:?}/parameter/no-verify-peer"
-				then
-					echo verify_peer=false
-				else
-					echo verify_peer=true
-				fi
-				if test -f "${__object:?}/parameter/onthefly-register"
-				then
-					echo onthefly_register=true
-				else
-					echo onthefly_register=false
-				fi
-			} | sort -t= -k1
+			# Boolean parameters
+			if test -f "${__object:?}/parameter/ldaps"
+			then
+				echo tls=true
+			else
+				echo tls=false
+			fi
+			if test -f "${__object:?}/parameter/no-verify-peer"
+			then
+				echo verify_peer=false
+			else
+				echo verify_peer=true
+			fi
+			if test -f "${__object:?}/parameter/onthefly-register"
+			then
+				echo onthefly_register=true
+			else
+				echo onthefly_register=false
+			fi
 		)
 
-		if printf '%s\n' "${attributes_should}" | cmp -s "${__object:?}/explorer/attributes" -
+		if
+			{
+				grep -e '^id=' "${__object:?}/explorer/attributes"
+				printf '%s\n' "${attributes_should}"
+			} \
+			| sort -t= -k1 \
+			| cmp -s "${__object:?}/explorer/attributes" -
 		then
 			exit 0
 		fi

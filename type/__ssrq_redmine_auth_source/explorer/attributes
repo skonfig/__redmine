@@ -25,10 +25,13 @@ install_dir=/usr/local/share/redmine
 svc_user=redmine
 
 RAILS_ENV=production
+export RAILS_ENV
 
 quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
 rails_cmd() {
-	su -l "${svc_user}" -s /bin/sh -c "cd $(quote "${install_dir}") && RAILS_ENV=${RAILS_ENV} bundle exec rails runner $(quote "$*")"
+	_env=$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	su -l "${svc_user}" -s /bin/sh -c "cd $(quote "${install_dir}") && ${_env% } bundle exec rails runner $(quote "$*")"
+	unset _env
 }
 
 : "${__object_id:?}"  # assert __object_id is set
