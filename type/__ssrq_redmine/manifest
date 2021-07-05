@@ -67,6 +67,10 @@ in
 		__package_apt build-essential  # gcc, libc6-dev, make
 		__package_apt ruby-dev
 
+		# ImageMagick
+		__package_apt imagemagick-6.q16
+		__package_apt ghostscript
+
 		case ${db_type}
 		in
 			(sqlite)
@@ -79,8 +83,7 @@ in
 			:  # no additional packages required
 		elif version_ge "${version_is}" 4.1.0
 		then
-			# ImageMagick 6 required by rmagick
-			__package_apt imagemagick-6.q16
+			# ImageMagick 6 dev headers required by rmagick
 			__package_apt libmagickcore-6.q16-dev
 			__package_apt libmagickwand-6.q16-dev
 
