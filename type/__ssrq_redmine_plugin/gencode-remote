@@ -131,6 +131,8 @@ in
 			EOF
 
 			echo 'copied assets' >>"${__messages_out:?}"
+
+			do_reload=true
 		fi
 		;;
 	(absent)
@@ -153,6 +155,20 @@ in
 			printf 'rm -r %s\n' "$(quote "${install_dir:?}/public/plugin_assets/${plugin_name}")"
 
 			echo 'removed assets' >>"${__messages_out:?}"
+
+			do_reload=true
 		fi
 		;;
 esac
+
+
+################################################################################
+# Reload Redmine (if web server supports it)
+
+if ${do_reload:-false}
+then
+	cat <<-EOF
+
+	touch $(quote "${install_dir:?}/tmp/restart.txt") || :
+	EOF
+fi

@@ -103,6 +103,7 @@ ${bundler_without:+ --without ${bundler_without}}
 	EOF
 
 	echo 'installed dependencies' >>"${__messages_out:?}"
+	do_reload=true
 fi
 
 if test "${cksum_should}" != "${cksum_is}"
@@ -132,6 +133,7 @@ then
 	EOF
 
 	echo 'adjusted permissions' >>"${__messages_out:?}"
+	do_reload=true
 
 	# Clear tmp
 	gencode_setup
@@ -156,6 +158,7 @@ then
 	  chmod 0750 config/initializers/secret_token.rb
 	}
 	EOF
+	do_reload=true
 fi
 
 if test "${migrations_state}" != 'present' || test "${cksum_should}" != "${cksum_is}"
@@ -180,4 +183,17 @@ then
 	EOF
 
 	echo 'ran db migrations' >>"${__messages_out:?}"
+	do_reload=true
+fi
+
+
+################################################################################
+# Reload Redmine (if web server supports it)
+
+if ${do_reload:-false}
+then
+	cat <<-EOF
+
+	touch $(quote "${install_dir:?}/tmp/restart.txt") || :
+	EOF
 fi
