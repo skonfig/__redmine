@@ -101,6 +101,8 @@ ${bundler_without:+ --without ${bundler_without}}
 	# Lock down vendor directory to avoid unwanted "code changes""
 	chown -R 0:0 vendor
 	EOF
+
+	echo 'installed dependencies' >>"${__messages_out:?}"
 fi
 
 if test "${cksum_should}" != "${cksum_is}"
@@ -129,6 +131,8 @@ then
 	chmod 0775 db
 	EOF
 
+	echo 'adjusted permissions' >>"${__messages_out:?}"
+
 	# Clear tmp
 	gencode_setup
 	cat <<-EOF
@@ -136,6 +140,8 @@ then
 	# Clear tmp
 	bundle_doas exec rake tmp:clear
 	EOF
+
+	echo 'cleared tmp' >>"${__messages_out:?}"
 
 	# Generate (session) secret token
 	gencode_setup
@@ -172,4 +178,6 @@ then
 	  bundle_doas exec rake redmine:load_default_data
 	fi
 	EOF
+
+	echo 'ran db migrations' >>"${__messages_out:?}"
 fi
