@@ -18,6 +18,11 @@ None.
 
 OPTIONAL PARAMETERS
 -------------------
+attachments-path
+   The path on the filesystem where Redmine should store attachments
+   (i.e. uploaded files).
+
+   Defaults to: ``${install_dir}/files``.
 db-host
    Hostname of the database server.
 

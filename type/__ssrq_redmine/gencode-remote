@@ -20,6 +20,7 @@
 
 quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
 version_ge() { printf '%s\n' "$1" "$2" | sort -t. -r -n | head -n1 | grep -qFx "$1"; }
+yaml_quote() { printf '%s\n' "$*" | sed "s/'/''/g;1s/^/'/;\$s/\$/'/"; }
 
 install_dir='/usr/local/share/redmine'
 redmine_user='redmine'
@@ -100,7 +101,7 @@ then
 ${bundler_with:+ --with ${bundler_with}}\
 ${bundler_without:+ --without ${bundler_without}}
 
-	# Lock down vendor directory to avoid unwanted "code changes""
+	# Lock down vendor directory to avoid unwanted "code changes"
 	chown -R 0:0 vendor
 	EOF
 
@@ -207,6 +208,11 @@ config_should=$(
 				  }
 			  }'
 		fi
+	fi
+
+	if test -s "${__object:?}/parameter/attachments-path"
+	then
+		printf 'attachments_storage_path: %s\n' "$(yaml_quote "$(cat "${__object:?}/parameter/attachments-path")")"
 	fi
 
 	printf 'mirror_plugins_assets_on_startup: false\n'
