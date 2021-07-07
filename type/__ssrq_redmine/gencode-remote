@@ -82,6 +82,8 @@ then
 		bundler_with="${bundler_with-}${bundler_with:+ }rmagick"
 	fi
 
+	# TODO: Ensure that the bundle config contains the right values
+
 	gencode_setup
 	cat <<-EOF
 
@@ -160,6 +162,96 @@ then
 	EOF
 	do_reload=true
 fi
+
+################################################################################
+# Manipulate config
+
+config_should=$(
+	if test -s "${__object:?}/parameter/mail"
+	then
+		if echo ':sendmail' | cmp -s "${__object:?}/parameter/mail" -
+		then
+			printf 'email_delivery:\n  delivery_method: :sendmail\n'
+		else
+			# Parse given URL string, e.g.
+			# smtp://someone@example.com:hunter2@smtp.example.com:587?auth=:login
+
+			# Attention: q&d code ahead!
+			sed -n -e '1s#^\([^:]\{1,\}\)://\(\([^:]\{1,\}\):\(.*\)@\)\{0,1\}\([^:?/]\{1,\}\)\(:\([0-9]\{1,\}\)\)\{0,1\}\(?.*\)\{0,1\}$#type:\1user_name:\3password:\4address:\5port:\7query:\8#p' <"${__object:?}/parameter/mail" \
+			| awk '
+			  BEGIN { RS = "\034" }
+			  {
+				  k = substr($0, 1, index($0, ":")-1)
+				  v = substr($0, index($0, ":")+1)
+				  d[k] = v
+			  }
+			  END {
+				  print "email_delivery:"
+				  print "  delivery_method: :" d["type"]
+				  print "  " d["type"] "_settings:"
+
+				  split("address,port,user_name,password,query", skeys, ",")
+				  for (i = 1; i <= length(skeys); i++) {
+					  k = skeys[i]; v = d[k]
+					  if (k == "query") {
+						  sub(/^\?/, "", v)
+						  split(v, qopts, "[&;]")
+						  for (j = 1; j <= length(qopts); j++) {
+							  qk = substr(qopts[j], 1, index(qopts[j], "=")-1)
+							  qv = substr(qopts[j], index(qopts[j], "=")+1)
+							  print "    " qk ": " qv
+						  }
+					  } else if (v) {  # only if value is non-empty
+						  print "    " k ": " v
+					  }
+				  }
+			  }'
+		fi
+	fi
+
+	printf 'mirror_plugins_assets_on_startup: false\n'
+
+	if test -f "${__object:?}/parameter/sudo-mode"
+	then
+		printf 'sudo_mode: true\n'
+	fi
+)
+
+if ! printf '%s\n' "${config_should}" | cmp -s "${__object:?}/explorer/config-values" -
+then
+	cat <<-EOF
+	if ! test -f $(quote "${install_dir:?}/config/configuration.yml") && test -f $(quote "${install_dir:?}/config/configuration.yml.example")
+	then
+	    cp $(quote "${install_dir:?}/config/configuration.yml.example") $(quote "${install_dir:?}/config/configuration.yml")
+	    chown 0:$(quote "${redmine_user}") $(quote "${install_dir:?}/config/configuration.yml")
+	    chmod 0640 $(quote "${install_dir:?}/config/configuration.yml")
+	fi
+
+	awk '
+	!in_prod_env
+	/^production:/ { in_prod_env = 1; next }
+	in_prod_env && /^[^ 	]/ {
+	    # print contents of stdin (indented with two spaces)
+	    system("sed -e '\''s/^/  /'\''")
+	    in_prod_env = 0
+
+	    print ""
+	    print
+	}
+	' $(quote "${install_dir:?}/config/configuration.yml") <<'DATA' >$(quote "${install_dir:?}/config/configuration.yml.tmp") \
+	&& cat $(quote "${install_dir:?}/config/configuration.yml.tmp") >$(quote "${install_dir:?}/config/configuration.yml")
+	${config_should:?}
+	DATA
+	rm $(quote "${install_dir:?}/config/configuration.yml.tmp")
+	EOF
+
+	echo 'config updated' >>"${__messages_out:?}"
+	do_reload=true
+fi
+
+
+################################################################################
+# DB migrations (and DB initialisation)
 
 if test "${migrations_state}" != 'present' || test "${cksum_should}" != "${cksum_is}"
 then

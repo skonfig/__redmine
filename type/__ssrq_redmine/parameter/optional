@@ -5,4 +5,5 @@ db-port
 db-schema
 db-type
 db-user
+mail
 version

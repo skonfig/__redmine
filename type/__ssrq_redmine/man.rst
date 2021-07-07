@@ -67,6 +67,15 @@ db-user
    User to use to connect to the database server.
 
    Compatible ``--db-type``: MySQL, PostgreSQL, SQL Server.
+mail
+   The method Redmine should use to send out e-mails.
+
+   Values values are:
+
+   ``:sendmail``
+      use the system's :strong:`sendmail`\ (1) binary.
+   ``smtp://...``
+      a URL of the form ``smtp://[username:password@]smtp.server[:port][?query]``.
 version
    ...
 
