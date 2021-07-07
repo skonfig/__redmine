@@ -73,6 +73,9 @@ in
 
 		case ${db_type}
 		in
+			(postgresql)
+				__package_apt libpq-dev
+				;;
 			(sqlite)
 				__package_apt libsqlite3-dev
 				;;
