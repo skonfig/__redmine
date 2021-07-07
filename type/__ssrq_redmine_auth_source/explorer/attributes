@@ -27,6 +27,11 @@ svc_user=redmine
 RAILS_ENV=production
 export RAILS_ENV
 
+id "${svc_user}" >/dev/null 2>&1 || {
+	# $svc_user does not exist
+	exit 0
+}
+
 quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
 rails_cmd() {
 	_env=$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
