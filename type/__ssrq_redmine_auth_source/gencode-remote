@@ -33,13 +33,23 @@ gencode_setup() {
 	export RAILS_ENV
 
 	rails_cmd() {  # does not quoting of arguments
-	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")' && RAILS_ENV='$(quote "${RAILS_ENV}")" bundle exec rails runner \$*"
+	    _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")" && \${_env% } bundle exec rails runner \$*"
+	    unset _env
 	}
 
 	EOF
 
 	_is_set_up=true
 }
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r source_name <"${__object:?}/parameter/name"
+else
+	source_name=${__object_id:?}
+fi
+
 
 state_should=$(cat "${__object:?}/parameter/state")
 
@@ -48,12 +58,7 @@ in
 	(present)
 		attributes_should=$(
 			# Basic attributes
-			if test -s "${__object:?}/parameter/name"
-			then
-				printf 'name=%s\n' "$(head -n1 "${__object:?}/parameter/name")"
-			else
-				printf 'name=%s\n' "${__object_id:?}"
-			fi
+			printf 'name=%s\n' "${source_name}"
 			printf 'type=%s\n' "$(head -n1 "${__object:?}/parameter/type")"
 
 			while read -r param_name col_name
@@ -113,7 +118,7 @@ in
 		gencode_setup
 
 		cat <<-EOF
-		rails_cmd - <<'SCRIPT' 2<<'DATA'
+		rails_cmd - <<'SCRIPT' >&2 2<<'DATA'
 		lines = IO.for_fd(2).readlines()
 		attributes = lines.map(&:rstrip).map { |line| line.split('=', 2) }.to_h
 
@@ -124,11 +129,12 @@ in
 		s = AuthSource.find_by(name: source_name)
 		if s.nil?
 		    s = AuthSource.new_subclass_instance(source_type)
-		    s['name'] = source_name
+		    s.name = source_name
 		end
 
 		# Assert type matches
-		if s['type'] != source_type
+		if s.type != source_type
+		    puts 'Existing auth source type does not match --type'
 		    exit 1
 		end
 
@@ -149,13 +155,14 @@ in
 		# Delete auth source
 		gencode_setup
 
-		# shellcheck disable=SC2016
-		printf ': "${__object_id:?}"  # assert __object_id is set\n'
-
-		printf 'rails_cmd %s\n' "$(quote \''AuthSource.find_by(name: ENV["__object_id"]).delete'\')"
+		cat <<-EOF
+		__as_name=$(quote "${source_name}")
+		export __as_name
+		rails_cmd $(quote \''AuthSource.find_by(name: ENV["__as_name"]).delete'\')
+		EOF
 		;;
 	(*)
-		printf 'Invalid state: %s\n' "${state_should}" >&2
+		printf 'Invalid --state: %s\n' "${state_should}" >&2
 		exit 1
 		;;
 esac

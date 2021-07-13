@@ -39,6 +39,12 @@ rails_cmd() {
 	unset _env
 }
 
-: "${__object_id:?}"  # assert __object_id is set
+if test -s "${__object:?}/parameter/name"
+then
+	read -r __as_name <"${__object:?}/parameter/name"
+else
+	__as_name=${__object_id:?}
+fi
+export __as_name
 
-rails_cmd 'AuthSource.find_by(name: ENV["__object_id"])&.attributes&.sort&.each{ |k, v| puts [k, v].join("=") }'
+rails_cmd 'AuthSource.find_by(name: ENV["__as_name"])&.attributes&.sort&.each{ |k, v| puts [k, v].join("=") }'
