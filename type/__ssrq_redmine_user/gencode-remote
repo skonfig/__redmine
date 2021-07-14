@@ -1,0 +1,295 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of cdist.
+#
+# cdist is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cdist is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cdist. If not, see <http://www.gnu.org/licenses/>.
+#
+
+read -r install_dir <"${__object:?}/parameter/install-dir"
+redmine_user=redmine
+RAILS_ENV=production
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export RAILS_ENV
+
+	rails_cmd() {  # does not quoting of arguments
+	    _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")" && \${_env% } bundle exec rails runner \$*"
+	    unset _env
+	}
+
+	EOF
+
+	_is_set_up=true
+}
+redmine_password_hash() (
+	# Usage:
+	#  redmine_password_hash password
+	#  redmine_password_hash password salt
+
+	_password=${1:?}
+	_salt=${2:-$(LC_ALL=C tr -cd '0-9a-f' </dev/random | dd bs=1 count=16 2>/dev/null)}
+
+	_hash=$(
+		python3 -c "$(printf '%s\n' \
+			'import hashlib, sys' \
+			'sha1 = lambda s: hashlib.sha1(s.encode()).hexdigest()' \
+			'print(sha1(sys.argv[2] + sha1(sys.argv[1])))'
+		)" \
+		"${_password}" "${_salt}")
+
+	# shellcheck disable=SC2016
+	printf '$sha1$%s$%s\n' "${_salt}" "${_hash}"
+)
+
+if test -s "${__object:?}/parameter/login"
+then
+	read -r user_login <"${__object:?}/parameter/login"
+else
+	user_login=${__object_id:?}
+fi
+
+
+state_should=$(cat "${__object:?}/parameter/state")
+
+case ${state_should}
+in
+	(present|locked)
+		attributes_should=$(
+			# Basic attributes
+			printf 'login=%s\n' "${user_login}"
+
+			read -r state <"${__object:?}/parameter/state"
+			case ${state}
+			in
+				(present)
+					echo status=1  # STATUS_ACTIVE
+					;;
+				(locked)
+					echo status=3  # STATUS_LOCKED
+					;;
+			esac
+
+			# optional parameters, leave if not given
+			while read -r param_name col_name
+			do
+				if test -s "${__object:?}/parameter/${param_name}"
+				then
+					printf '%s=%s\n' "${col_name}" "$(head -n1 "${__object:?}/parameter/${param_name}")"
+				fi
+			done <<-'EOF'
+			firstname	firstname
+			lastname	lastname
+			EOF
+
+			if test -s "${__object:?}/parameter/auth-source"
+			then
+				printf 'auth_source=%s\n' "$(head -n1 "${__object:?}/parameter/auth-source")"
+			else
+				printf 'auth_source=\n'
+			fi
+
+			if test -f "${__object:?}/parameter/password"
+			then
+				if test -s "${__object:?}/parameter/auth-source"
+				then
+					printf 'Parameters --password and --auth-source are mutually exclusive!\n' >&2
+					exit 1
+				fi
+
+				read -r _password <"${__object:?}/parameter/password"
+				case ${_password}
+				in
+					(\$*)
+						printf 'password_hash=%s\n' "${_password}"
+						;;
+					(*)
+						printf 'password=%s\n' "${_password}"
+
+						# shellcheck disable=SC2016
+						password_salt=$(sed -n -e 's/^password_hash=$sha1$\([^$]*\)$.*$/\1/p' "${__object:?}/explorer/attributes")
+						password_hash=$(redmine_password_hash "${_password}" "${password_salt}")
+						printf 'password_hash=%s\n' "${password_hash}"
+						;;
+				esac
+			fi
+
+			if test -s "${__object:?}/parameter/email"
+			then
+				# Ordering of emails is ignored (except the first which is the
+				# "primary"). To determine if emails need to be changed,
+				# "secondary" emails are sorted.
+				{
+					read -r _primary_mail
+					printf '%s\n' "${_primary_mail}"
+					sort
+				} <"${__object:?}/parameter/email" \
+				| sed -e 's/^/emails=/'
+			fi
+
+			# Boolean parameters
+			if test -f "${__object:?}/parameter/admin"
+			then
+				echo "admin=true"
+			else
+				echo "admin=false"
+			fi
+			if test -f "${__object:?}/parameter/must-change-password"
+			then
+				# Only set this flag if the parameter is used, otherwise leave.
+				echo "must_change_password=true"
+			fi
+		)
+
+		if awk '
+			{
+				k = substr($0, 1, index($0, "=") - 1)
+				v = substr($0, index($0, "=") + 1)
+			}
+			k == "password" { next }  # plain-text password cannot be compared
+
+			NR == FNR { d_should[k] = (d_should[k] ? d_should[k] SUBSEP : "") v }
+			NR > FNR { d_is[k] = (d_is[k] ? d_is[k] SUBSEP : "") v }
+
+			END {
+				for (k in d_should) {
+					if (d_is[k] != d_should[k])
+						exit (e=1)
+				}
+				exit (e=0)
+			}
+			' - <<-EOF "${__object:?}/explorer/attributes"
+			${attributes_should}
+			EOF
+		then
+			exit 0
+		fi
+
+		gencode_setup
+
+		cat <<-CODE
+		rails_cmd - <<'EOF'
+		require 'scanf'
+
+		lines = <<-'DATA'.lines
+		${attributes_should}
+		DATA
+
+		attribute_list = lines.map(&:chomp).map { |line| line.split('=', 2) }
+		attributes = attribute_list.inject({}) { |h, el|
+		  h.merge({ el[0]=>[el[1]] }) { |_, a, b| a + b }
+		}
+
+		attributes.delete('id')
+		user_login = attributes.delete('login')[0]
+
+		u = User.find_by(login: user_login)
+		if u.nil?
+		  u = User.new(login: user_login)
+		end
+
+		# Set/update attributes
+		tosave = [u]
+		todel = []
+
+		# NOTE: Attribute types are ignored, hoping that they will be corrected on save.
+		attributes.each { |k, v|
+		  if k == 'emails'
+		    u.email_addresses.where(is_default: true).where.not(address: u.mail).each{ |addr|
+		      addr.is_default = false
+		      addr.save!
+		    }
+
+		    u.mail = v.shift
+
+		    u.email_addresses.where(is_default: false).each { |addr|
+		      # delete secondary email addresses that are not in the given
+		      # "should" list
+
+		      if v.delete(addr.address).nil?
+		        # address is not in "should" list -> delete
+		        todel << addr
+		      end
+		    }
+
+		    # append remaining secondary email addresses
+		    v.each { |a|
+		      tosave << EmailAddress.new(
+		    	:user => u, :address => a, :is_default => false)
+		    }
+		  elsif v.count == 1
+		    v = v[0]
+
+		    if k == 'auth_source'
+		      u.auth_source_id = v ? AuthSource.find_by(name: v)&.id : nil
+
+		    elsif k == 'password'
+		      u.password = u.password_confirmation = v
+		    elsif k == 'password_hash'
+		      unless attributes.key?('password')
+		        _ = v.scanf('\$sha1\$%[^\$]\$%s') { |salt, hash|
+		          u.salt = salt
+		          u.hashed_password = hash
+		          true  # used to check for failure below
+		        }
+		        if _.count < 1
+		          raise 'Invalid password hash encountered: %s' % [v]
+		        end
+		      end
+		    else
+		      u[k] = v
+		    end
+		  else
+		    raise 'Invalid value for --%s: %s' % [k, v]
+		  end
+		}
+
+		todel.each { |obj| obj.delete }
+		tosave.each { |obj| obj.save! }
+
+		EOF
+		CODE
+		;;
+	(absent)
+		test -s "${__object:?}/explorer/attributes" || exit 0
+
+		# Delete auth source
+		gencode_setup
+
+		cat <<-EOF
+		__user_login=$(quote "${user_login}")
+		export __user_login
+		rails_cmd - <<'EOF'
+		u = User.find_by(login: ENV["__user_login"])
+		unless u.nil?
+		  emails = u.email_addresses.to_a
+		  u.delete
+		  emails.each { |addr| addr.delete }
+		end
+		EOF
+		;;
+	(*)
+		printf 'Invalid --state: %s\n' "${state_should}" >&2
+		exit 1
+		;;
+esac
