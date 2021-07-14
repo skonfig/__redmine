@@ -117,10 +117,14 @@ in
 
 		gencode_setup
 
-		cat <<-EOF
-		rails_cmd - <<'SCRIPT' >&2 2<<'DATA'
-		lines = IO.for_fd(2).readlines()
-		attributes = lines.map(&:rstrip).map { |line| line.split('=', 2) }.to_h
+		cat <<-CODE
+		rails_cmd - <<'EOF'
+		lines = <<-'DATA'.lines
+		${attributes_should}
+		DATA
+
+		attribute_list = lines.map(&:rstrip).map { |line| line.split('=', 2) }
+		attributes = attribute_list.to_h
 
 		attributes.delete('id')
 		source_name = attributes.delete('name')
@@ -128,14 +132,13 @@ in
 
 		s = AuthSource.find_by(name: source_name)
 		if s.nil?
-		    s = AuthSource.new_subclass_instance(source_type)
-		    s.name = source_name
+		  s = AuthSource.new_subclass_instance(source_type)
+		  s.name = source_name
 		end
 
 		# Assert type matches
-		if s.type != source_type
-		    puts 'Existing auth source type does not match --type'
-		    exit 1
+		unless s.type == source_type
+		  raise 'Existing auth source type does not match --type'
 		end
 
 		# Set/update attributes
@@ -144,10 +147,8 @@ in
 
 		s.save!
 
-		SCRIPT
-		${attributes_should}
-		DATA
 		EOF
+		CODE
 		;;
 	(absent)
 		test -s "${__object:?}/explorer/attributes" || exit 0
