@@ -99,7 +99,7 @@ EXAMPLES
 SEE ALSO
 --------
 - :strong:`cdist-type__ssrq_redmine`\ (7)
-- `RedmineLDAP<https://www.redmine.org/projects/redmine/wiki/RedmineLDAP¨>`__
+- `RedmineLDAP <https://www.redmine.org/projects/redmine/wiki/RedmineLDAP>`__
 
 
 AUTHORS
