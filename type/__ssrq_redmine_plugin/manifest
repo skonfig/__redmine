@@ -86,10 +86,10 @@ printf '%s\\n' $(quote "$(cat "${__object:?}/parameter/url")") >$(quote "${plugi
 printf '%s\\n' $(quote "${__object_name:?}") >$(quote "${plugin_dir:?}/.cdist_managed_by")
 "
 		fi
-	;;
+		;;
 	(absent)
 		# Delete plugin source directory after cleanup has been done in code-remote
 		require=${__object_name:?} \
 		__directory "${plugin_dir:?}" --state absent
-	;;
+		;;
 esac
