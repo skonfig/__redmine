@@ -28,4 +28,4 @@ test -d "${install_dir:?}" && test -f "${install_dir:?}/.cdist__unpack_sum" || {
 	exit 0
 }
 
-sed -e 's/^\([0-9]\{10\}\)\(.*\)/\1 \2/' "${install_dir:?}/.cdist__unpack_sum"
+cat "${install_dir:?}/.cdist__unpack_sum"

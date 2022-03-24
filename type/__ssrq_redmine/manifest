@@ -46,6 +46,9 @@ $(
 )
 EOF
 
+# Remove space from $cksum_should to be same as archive-sum
+cksum_should=$(printf '%s\n' "${cksum_should}" | tr -d ' ')
+
 test -n "${version_is}" || {
 	if test "${version_should}" != 'latest'
 	then
