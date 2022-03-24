@@ -75,7 +75,9 @@ then
 	# Install dependencies
 	# (also after database.yml has changed because Gemfile uses it)
 
+	# NOTE: the with option is available since bundler 1.16
 	bundler_with='ldap'  # used by __ssrq_redmine_auth_source
+	# NOTE: space-separated since bundler 1.13, before :-separated
 	bundler_without='development test'
 
 	if ! version_ge "${version_is}" 4.1
@@ -97,9 +99,11 @@ then
 	# Change ownership of .bundle / vendor to make Ruby bundler happy.
 	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
 
-	bundle_doas install --no-color --path=$(quote "${install_dir:?}/vendor/bundle")\
-${bundler_with:+ --with ${bundler_with}}\
-${bundler_without:+ --without ${bundler_without}}
+	bundle_doas config set --local path $(quote "${install_dir:?}/vendor/bundle")
+	bundle_doas config set --local without $(quote "${bundler_without}")
+	bundle_doas config set --local with $(quote "${bundler_with}")
+
+	bundle_doas install --no-color
 
 	# Lock down vendor directory to avoid unwanted "code changes"
 	chown -R 0:0 vendor
