@@ -93,7 +93,7 @@ then
 	:>$(quote "plugins/${plugin_name}/Gemfile.lock")
 	chown $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") $(quote "plugins/${plugin_name}/Gemfile.lock")
 
-	bundle_doas install --no-color --path=$(quote "${install_dir:?}/vendor/bundle") --gemfile=$(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile") --without development test
+	bundle_doas install --no-color --gemfile=$(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile")
 
 	# Lock down vendor/ and plugin's Gemfile.lock to avoid unwanted "code changes"
 	chown -R 0:0 vendor Gemfile.lock
