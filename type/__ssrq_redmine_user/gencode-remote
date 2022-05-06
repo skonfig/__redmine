@@ -189,8 +189,6 @@ in
 
 		cat <<-CODE
 		rails_cmd - <<'EOF'
-		require 'scanf'
-
 		lines = <<-'DATA'.lines
 		${attributes_should}
 		DATA
@@ -235,7 +233,7 @@ in
 		    # append remaining secondary email addresses
 		    v.each { |a|
 		      tosave << EmailAddress.new(
-		    	:user => u, :address => a, :is_default => false)
+		        :user => u, :address => a, :is_default => false)
 		    }
 		  elsif v.count == 1
 		    v = v[0]
@@ -247,14 +245,9 @@ in
 		      u.password = u.password_confirmation = v
 		    elsif k == 'password_hash'
 		      unless attributes.key?('password')
-		        _ = v.scanf('\$sha1\$%[^\$]\$%s') { |salt, hash|
-		          u.salt = salt
-		          u.hashed_password = hash
-		          true  # used to check for failure below
-		        }
-		        if _.count < 1
-		          raise 'Invalid password hash encountered: %s' % [v]
-		        end
+		        pw_match = v.match(/^\\\$sha1\\\$([^\$]+)\\\$(.*)\$/)
+		        raise 'Invalid password hash encountered: %s' % [v] if pw_match.nil?
+		        u.salt, u.hashed_password = pw_match[1,2]
 		      end
 		    else
 		      u[k] = v
