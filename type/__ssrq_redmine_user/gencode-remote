@@ -243,11 +243,13 @@ in
 
 		    elsif k == 'password'
 		      u.password = u.password_confirmation = v
+		      u.must_change_passwd = false
 		    elsif k == 'password_hash'
 		      unless attributes.key?('password')
 		        pw_match = v.match(/^\\\$sha1\\\$([^\$]+)\\\$(.*)\$/)
 		        raise 'Invalid password hash encountered: %s' % [v] if pw_match.nil?
 		        u.salt, u.hashed_password = pw_match[1,2]
+		        u.must_change_passwd = false
 		      end
 		    else
 		      u[k] = v
