@@ -78,14 +78,16 @@ then
 	# Install dependencies
 	# (also after database.yml has changed because Gemfile uses it)
 
+	bundler_with_separator=':'
+
 	# NOTE: the with option is available since bundler 1.16
 	bundler_with='ldap'  # used by __ssrq_redmine_auth_source
 	# NOTE: space-separated since bundler 1.13, before :-separated
-	bundler_without='development test'
+	bundler_without="development${bundler_with_separator}test"
 
 	if ! version_ge "${version_is}" 4.1
 	then
-		bundler_with="${bundler_with-}${bundler_with:+ }rmagick"
+		bundler_with="${bundler_with-}${bundler_with:+${bundler_with_separator}}rmagick"
 	fi
 
 	# TODO: Ensure that the bundle config contains the right values
@@ -297,8 +299,5 @@ fi
 
 if ${do_reload:-false}
 then
-	cat <<-EOF
-
-	touch $(quote "${install_dir:?}/tmp/restart.txt") || :
-	EOF
+	printf '\ntouch %s || :\n' "$(quote "${install_dir:?}/tmp/restart.txt")"
 fi

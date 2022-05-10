@@ -92,14 +92,14 @@ in
 		;;
 	(sqlite)
 		cat <<-EOF
-		production:
+		${env_name}:
 		  adapter: sqlite3
 		  database: $(yaml_quote "${db_name:-db/redmine.sqlite3}")
 		EOF
 		;;
 	(sqlserver)
 		cat <<-EOF
-		production:
+		${env_name}:
 		  adapter: sqlserver
 		  database: $(yaml_quote "${db_name:-redmine}")
 		  username: $(yaml_quote "${db_user:?}")
