@@ -40,6 +40,8 @@ gencode_setup() {
 	! ${_is_set_up:-false} || return 0  # singleton
 
 	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+
 	BUNDLE_APP_CONFIG=$(quote "${install_dir:?}/.bundle")
 	RAILS_ENV=$(quote "${RAILS_ENV}")
 	export BUNDLE_APP_CONFIG RAILS_ENV
@@ -86,18 +88,14 @@ then
 	gencode_setup
 	cat <<-EOF
 
-	# Change ownership of vendor/ to allow bundler to install gems.
-	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") $(quote "${install_dir:?}/vendor/")
-	# Allow bundler to update plugin Gemfile.lock
-	:>$(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile.lock")
-	chown $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") $(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile.lock")
+	# Change ownership of .bundle / vendor / Gemfile.lock to make Ruby bundler happy.
+	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
 
 	bundle_doas install --no-color
 
-	# Lock down vendor/ and plugin's Gemfile.lock to avoid unwanted "code changes"
+	# Lock down .bundle / vendor / Gemfile.lock to avoid unwanted "code changes"
 	# TODO: also trap EXIT
-	chown -R 0:0 $(quote "${install_dir:?}/vendor/") $(quote "${install_dir:?}/Gemfile.lock")
-	chown 0:0 $(quote "${install_dir:?}/plugins/${plugin_name}/Gemfile.lock")
+	chown -R 0:0 .bundle vendor Gemfile.lock
 	EOF
 
 	echo 'installed gems' >>"${__messages_out:?}"

@@ -40,8 +40,7 @@ command -v bundle >/dev/null 2>&1 || {
 	exit 0
 }
 
-gemfile="${plugin_dir:?}/Gemfile"
-if (cd "${install_dir:?}" && BUNDLE_APP_CONFIG="${install_dir:?}/.bundle" bundle check --gemfile "${gemfile}") >/dev/null
+if (cd "${install_dir:?}" && BUNDLE_APP_CONFIG="${install_dir:?}/.bundle" bundle check) >/dev/null
 then
 	echo 'present'
 else
