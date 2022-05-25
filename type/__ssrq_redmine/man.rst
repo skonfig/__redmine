@@ -96,13 +96,15 @@ EXAMPLES
 
 .. code-block:: sh
 
-    # TODO
-    __ssrq_redmine
+    # Install Redmine and keep its dependencies up to date (checked on every cdist run)
+    __ssrq_redmine --version latest --update-gems
 
 
 SEE ALSO
 --------
-:strong:`TODO`\ (7)
+:strong:`cdist-type__ssrq_redmine_auth_source`\ (7),
+:strong:`cdist-type__ssrq_redmine_plugin`\ (7),
+:strong:`cdist-type__ssrq_redmine_user`\ (7)
 
 
 AUTHORS
