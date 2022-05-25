@@ -326,5 +326,9 @@ fi
 
 if ${do_reload:-false}
 then
-	printf '\ntouch %s || :\n' "$(quote "${install_dir:?}/tmp/restart.txt")"
+	printf '\ntouch %s && chown %s:%s %s || :\n' \
+		"$(quote "${install_dir:?}/tmp/restart.txt")" \
+		"$(quote "${redmine_user:?}")" \
+		"$(quote "${redmine_user:?}")" \
+		"$(quote "${install_dir:?}/tmp/restart.txt")"
 fi
