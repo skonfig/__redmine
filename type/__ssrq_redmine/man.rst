@@ -87,7 +87,8 @@ version
 
 BOOLEAN PARAMETERS
 ------------------
-None.
+update-gems
+   update already installed gems if newer versions compatible with the Gemfile are available.
 
 
 EXAMPLES

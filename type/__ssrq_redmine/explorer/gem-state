@@ -1,6 +1,6 @@
 #!/bin/sh -e
 #
-# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+# 2021-2022 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
 #
 # This file is part of cdist.
 #
@@ -22,19 +22,31 @@
 
 install_dir='/usr/local/share/redmine'
 
-test -d "${install_dir:?}" || {
+BUNDLE_APP_CONFIG=${install_dir:?}/.bundle
+export BUNDLE_APP_CONFIG
+
+test -d "${install_dir}" -a -d "${BUNDLE_APP_CONFIG}" || {
 	echo 'absent'
 	exit 0
 }
+
+cd "${install_dir:?}"
 
 command -v bundle >/dev/null 2>&1 || {
 	echo 'absent'
 	exit 0
 }
 
-if (cd "${install_dir:?}" && bundle check) >/dev/null
+if bundle check >/dev/null
 then
-	echo 'present'
+	# NOTE: sync bundle outdated options with gencode-remote (bundle_doas update)
+	if test -f "${__object:?}/parameter/update-gems" \
+		&& ! bundle outdated --strict >/dev/null
+	then
+		echo 'outdated'
+	else
+		echo 'present'
+	fi
 else
 	echo 'absent'
 fi

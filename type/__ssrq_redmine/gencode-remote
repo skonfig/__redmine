@@ -1,6 +1,6 @@
 #!/bin/sh -e
 #
-# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+# 2021-2022 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
 #
 # This file is part of cdist.
 #
@@ -72,11 +72,17 @@ gencode_setup() {
 
 ################################################################################
 
-if test "${gem_state}" != 'present' \
-	|| grep -q -e "^__file${install_dir:?}/config/database.yml:" "${__messages_in:?}"
+if grep -q -e "^__file${install_dir:?}/config/database.yml:" "${__messages_in:?}"
+then
+	# NOTE: ignore gem-state if database.yml has changed because Gemfile depends
+	#       on it, making the gem-state non-reliable if database.yml changed.
+	#       database.yml is also updated on Redmine upgrades / new installations
+	gem_state='absent'
+fi
+
+if test "${gem_state}" != 'present'
 then
 	# Install dependencies
-	# (also after database.yml has changed because Gemfile uses it)
 
 	bundler_with_separator=':'
 
@@ -97,25 +103,46 @@ then
 
 	test -d .bundle || mkdir .bundle
 	test -d vendor || mkdir vendor
+	test -f Gemfile.lock || :>Gemfile.lock
 
-	# Clear Gemfile.lock
-	:>Gemfile.lock
-
-	# Change ownership of .bundle / vendor to make Ruby bundler happy.
+	# Change ownership of .bundle / vendor / Gemfile.lock to make Ruby bundler happy.
 	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
 
 	bundle_doas config set --local path $(quote "${install_dir:?}/vendor/bundle")
 	bundle_doas config set --local without $(quote "${bundler_without}")
 	bundle_doas config set --local with $(quote "${bundler_with}")
 
-	bundle_doas install --no-color
-
-	# Lock down vendor directory to avoid unwanted "code changes"
-	chown -R 0:0 vendor
 	EOF
 
-	echo 'installed dependencies' >>"${__messages_out:?}"
-	do_reload=true
+	if test "${gem_state}" = 'absent'
+	then
+		# install gems
+		printf 'bundle_doas install --no-color\n'
+
+		do_reload=true
+		echo 'bundle install' >>"${__messages_out:?}"
+	elif test "${gem_state}" = 'outdated'
+	then
+		# update gems
+		# NOTE: sync bundle update options with explorer/gem-state (bundle outdated)
+		cat <<-EOF
+		if test -s Gemfile.lock
+		then
+		  cp -v Gemfile.lock Gemfile.lock.bak.\$(date +%s)
+		fi
+		bundle_doas update --no-color --all
+		EOF
+
+		do_reload=true
+		echo 'bundle update' >>"${__messages_out:?}"
+	fi
+
+	cat <<-EOF
+
+	# Lock down .bundle / vendor / Gemfile.lock to avoid unwanted "code changes"
+	# TODO: also trap EXIT
+	chown -R 0:0 .bundle vendor Gemfile.lock
+	EOF
 fi
 
 if test "${cksum_should}" != "${cksum_is}"
