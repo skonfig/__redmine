@@ -261,7 +261,9 @@ config_should=$(
 
 if ! printf '%s\n' "${config_should}" | cmp -s "${__object:?}/explorer/config-values" -
 then
+	gencode_setup
 	cat <<-EOF
+
 	if ! test -f $(quote "${install_dir:?}/config/configuration.yml") && test -f $(quote "${install_dir:?}/config/configuration.yml.example")
 	then
 	    cp $(quote "${install_dir:?}/config/configuration.yml.example") $(quote "${install_dir:?}/config/configuration.yml")
