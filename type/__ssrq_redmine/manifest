@@ -1,6 +1,6 @@
 #!/bin/sh -e
 #
-# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+# 2021,2022 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
 #
 # This file is part of cdist.
 #
@@ -18,7 +18,7 @@
 # along with cdist. If not, see <http://www.gnu.org/licenses/>.
 #
 
-version_ge() { printf '%s\n' "$1" "$2" | sort -t. -r -n | head -n1 | grep -qFx "$1"; }
+. "${__type:?}/files/functions.sh"
 
 install_dir='/usr/local/share/redmine'
 

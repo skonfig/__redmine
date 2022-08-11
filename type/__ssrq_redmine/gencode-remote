@@ -18,9 +18,7 @@
 # along with cdist. If not, see <http://www.gnu.org/licenses/>.
 #
 
-quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
-version_ge() { printf '%s\n' "$1" "$2" | sort -t. -r -n | head -n1 | grep -qFx "$1"; }
-yaml_quote() { printf '%s\n' "$*" | sed "s/'/''/g;1s/^/'/;\$s/\$/'/"; }
+. "${__type:?}/files/functions.sh"
 
 install_dir='/usr/local/share/redmine'
 redmine_user='redmine'
