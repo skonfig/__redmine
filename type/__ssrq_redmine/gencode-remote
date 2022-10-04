@@ -257,7 +257,8 @@ config_should=$(
 	fi
 )
 
-if ! printf '%s\n' "${config_should}" | cmp -s "${__object:?}/explorer/config-values" -
+if ! printf '%s\n' "${config_should}" | cmp -s "${__object:?}/explorer/config-values" - \
+|| test "${cksum_should}" != "${cksum_is}"
 then
 	gencode_setup
 	cat <<-EOF
