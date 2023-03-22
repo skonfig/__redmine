@@ -1,0 +1,14 @@
+base-dn
+bind-dn
+bind-pw
+filter
+firstname-attr
+host
+lastname-attr
+login-attr
+mail-attr
+name
+port
+state
+timeout
+type

@@ -1,0 +1,169 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of the skonfig set __redmine.
+#
+# This set is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This set is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this set. If not, see <http://www.gnu.org/licenses/>.
+#
+
+install_dir=/usr/local/share/redmine
+redmine_user=redmine
+RAILS_ENV=production
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export RAILS_ENV
+
+	rails_cmd() {  # does not quoting of arguments
+	    _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")" && \${_env% } bundle exec rails runner \$*"
+	    unset _env
+	}
+
+	EOF
+
+	_is_set_up=true
+}
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r source_name <"${__object:?}/parameter/name"
+else
+	source_name=${__object_id:?}
+fi
+
+
+state_should=$(cat "${__object:?}/parameter/state")
+
+case ${state_should}
+in
+	(present)
+		attributes_should=$(
+			# Basic attributes
+			printf 'name=%s\n' "${source_name}"
+			printf 'type=%s\n' "$(head -n1 "${__object:?}/parameter/type")"
+
+			while read -r param_name col_name
+			do
+				if test -s "${__object:?}/parameter/${param_name}"
+				then
+					printf '%s=%s\n' "${col_name}" "$(head -n1 "${__object:?}/parameter/${param_name}")"
+				else
+					printf '%s=\n' "${col_name}"
+				fi
+			done <<-'EOF'
+			base-dn	base_dn
+			bind-dn	account
+			bind-pw	account_password
+			filter	filter
+			firstname-attr	attr_firstname
+			host	host
+			lastname-attr	attr_lastname
+			login-attr	attr_login
+			mail-attr	attr_mail
+			port	port
+			timeout	timeout
+			EOF
+
+			# Boolean parameters
+			if test -f "${__object:?}/parameter/ldaps"
+			then
+				echo tls=true
+			else
+				echo tls=false
+			fi
+			if test -f "${__object:?}/parameter/no-verify-peer"
+			then
+				echo verify_peer=false
+			else
+				echo verify_peer=true
+			fi
+			if test -f "${__object:?}/parameter/onthefly-register"
+			then
+				echo onthefly_register=true
+			else
+				echo onthefly_register=false
+			fi
+		)
+
+		if
+			{
+				grep -e '^id=' "${__object:?}/explorer/attributes"
+				printf '%s\n' "${attributes_should}"
+			} \
+			| sort -t= -k1 \
+			| cmp -s "${__object:?}/explorer/attributes" -
+		then
+			exit 0
+		fi
+
+		gencode_setup
+
+		cat <<-CODE
+		rails_cmd - <<'EOF'
+		lines = <<-'DATA'.lines
+		${attributes_should}
+		DATA
+
+		attribute_list = lines.map(&:rstrip).map { |line| line.split('=', 2) }
+		attributes = attribute_list.to_h
+
+		attributes.delete('id')
+		source_name = attributes.delete('name')
+		source_type = attributes.delete('type')
+
+		s = AuthSource.find_by(name: source_name)
+		if s.nil?
+		  s = AuthSource.new_subclass_instance(source_type)
+		  s.name = source_name
+		end
+
+		# Assert type matches
+		unless s.type == source_type
+		  raise 'Existing auth source type does not match --type'
+		end
+
+		# Set/update attributes
+		# NOTE: Attribute types are ignored, hoping that they will be corrected on save.
+		attributes.each { |k, v| s[k] = v }
+
+		s.save!
+
+		EOF
+		CODE
+		;;
+	(absent)
+		test -s "${__object:?}/explorer/attributes" || exit 0
+
+		# Delete auth source
+		gencode_setup
+
+		cat <<-EOF
+		__as_name=$(quote "${source_name}")
+		export __as_name
+		rails_cmd $(quote \''AuthSource.find_by(name: ENV["__as_name"]).delete'\')
+		EOF
+		;;
+	(*)
+		printf 'Invalid --state: %s\n' "${state_should}" >&2
+		exit 1
+		;;
+esac

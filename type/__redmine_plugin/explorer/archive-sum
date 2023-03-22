@@ -1,0 +1,41 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of the skonfig set __redmine.
+#
+# This set is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This set is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this set. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer checks if the desired version is extraced at $plugin_dir.
+#
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r plugin_name <"${__object:?}/parameter/name"
+else
+	plugin_name=${__object_id:?}
+fi
+
+install_dir=$(cat "${__object:?}/parameter/install-dir")
+plugin_dir="${install_dir:?}/plugins/${plugin_name}"
+
+sum_file="${plugin_dir:?}/.cdist__unpack_sum"
+
+# shellcheck disable=SC2015
+test -d "${plugin_dir:?}" && test -f "${sum_file:?}" || {
+	# absent
+	exit 0
+}
+
+sed -e 's/^\([0-9]\{10\}\)\(.*\)/\1 \2/' "${sum_file:?}"

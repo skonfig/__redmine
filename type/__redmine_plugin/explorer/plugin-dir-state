@@ -1,0 +1,48 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of the skonfig set __redmine.
+#
+# This set is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This set is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this set. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer checks if the plugin's source directory exists.
+#
+
+if test -s "${__object:?}/parameter/name"
+then
+	read -r plugin_name <"${__object:?}/parameter/name"
+else
+	plugin_name=${__object_id:?}
+fi
+
+install_dir=$(cat "${__object:?}/parameter/install-dir")
+plugin_dir="${install_dir:?}/plugins/${plugin_name}"
+
+if test -d "${plugin_dir:?}"
+then
+	if ! test -f "${plugin_dir}/.cdist_managed_by"
+	then
+		# installed but manually it seems
+		echo 'present-manual'
+	elif printf '%s\n' "${__object_name:?}" | cmp -s "${plugin_dir}/.cdist_managed_by" -
+	then
+		echo 'present'
+	else
+		echo 'conflict'
+		cat "${plugin_dir}/.cdist_managed_by"
+	fi
+else
+	echo 'absent'
+fi

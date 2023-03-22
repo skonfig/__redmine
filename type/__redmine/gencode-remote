@@ -1,0 +1,335 @@
+#!/bin/sh -e
+#
+# 2021-2022 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of the skonfig set __redmine.
+#
+# This set is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This set is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this set. If not, see <http://www.gnu.org/licenses/>.
+#
+
+. "${__type:?}/files/functions.sh"
+
+install_dir='/usr/local/share/redmine'
+redmine_user='redmine'
+
+gem_state=$(cat "${__object:?}/explorer/gem-state")
+cksum_is=$(cat "${__object:?}/explorer/archive-sum")
+migrations_state=$(cat "${__object:?}/explorer/db-migrations-state")
+
+version_should=$(cat "${__object:?}/parameter/version")
+
+IFS='	' read -r version_is _ cksum_should <<EOF
+$(
+	case ${version_should}
+	in
+		(latest)
+			tail -n 1 "${__type:?}/files/cksums.tsv"
+			;;
+		(*)
+			awk -F '\t' -v vers="${version_should}" '$1 == vers' "${__type:?}/files/cksums.tsv"
+			;;
+	esac
+)
+EOF
+
+# Remove space from $cksum_should to be same as archive-sum
+cksum_should=$(printf '%s\n' "${cksum_should}" | tr -d ' ')
+
+
+RAILS_ENV=production
+
+gencode_setup() {
+	! ${_is_set_up:-false} || return 0  # singleton
+
+	cat <<-EOF
+	cd $(quote "${install_dir:?}") || exit
+	BUNDLE_APP_CONFIG=$(quote "${install_dir:?}/.bundle")
+	RAILS_ENV=$(quote "${RAILS_ENV}")
+	export BUNDLE_APP_CONFIG RAILS_ENV
+
+	bundle_doas() {
+	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	  su -l $(quote "${redmine_user}") -s /bin/sh -c $(quote "cd $(quote "${install_dir:?}") && ")"\${_env% } bundle \$*"
+	  unset _env
+	}
+	EOF
+	_is_set_up=true
+}
+
+
+################################################################################
+
+if grep -q -e "^__file${install_dir:?}/config/database.yml:" "${__messages_in:?}"
+then
+	# NOTE: ignore gem-state if database.yml has changed because Gemfile depends
+	#       on it, making the gem-state non-reliable if database.yml changed.
+	#       database.yml is also updated on Redmine upgrades / new installations
+	gem_state='absent'
+fi
+
+if test "${gem_state}" != 'present'
+then
+	# Install dependencies
+
+	bundler_with_separator=':'
+
+	# NOTE: the with option is available since bundler 1.16
+	bundler_with='ldap'  # used by __redmine_auth_source
+	# NOTE: space-separated since bundler 1.13, before :-separated
+	bundler_without="development${bundler_with_separator}test"
+
+	if ! version_ge "${version_is}" 4.1
+	then
+		bundler_with="${bundler_with-}${bundler_with:+${bundler_with_separator}}rmagick"
+	fi
+
+	# TODO: Ensure that the bundle config contains the right values
+
+	gencode_setup
+	cat <<-EOF
+
+	test -d .bundle || mkdir .bundle
+	test -d vendor || mkdir vendor
+	test -f Gemfile.lock || :>Gemfile.lock
+
+	# Change ownership of .bundle / vendor / Gemfile.lock to make Ruby bundler happy.
+	chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") .bundle vendor Gemfile.lock
+
+	bundle_doas config set --local path $(quote "${install_dir:?}/vendor/bundle")
+	bundle_doas config set --local without $(quote "${bundler_without}")
+	bundle_doas config set --local with $(quote "${bundler_with}")
+
+	EOF
+
+	if test "${gem_state}" = 'absent'
+	then
+		# install gems
+		printf 'bundle_doas install --no-color\n'
+
+		do_reload=true
+		echo 'bundle install' >>"${__messages_out:?}"
+	elif test "${gem_state}" = 'outdated'
+	then
+		# update gems
+		# NOTE: sync bundle update options with explorer/gem-state (bundle outdated)
+		cat <<-EOF
+		if test -s Gemfile.lock
+		then
+		  cp -v Gemfile.lock Gemfile.lock.bak.\$(date +%s)
+		fi
+		bundle_doas update --no-color --all
+		EOF
+
+		do_reload=true
+		echo 'bundle update' >>"${__messages_out:?}"
+	fi
+
+	cat <<-EOF
+
+	# Lock down .bundle / vendor / Gemfile.lock to avoid unwanted "code changes"
+	# TODO: also trap EXIT
+	chown -R 0:0 .bundle vendor Gemfile.lock
+	EOF
+fi
+
+if test "${cksum_should}" != "${cksum_is}"
+then
+	# post-install / post-upgrade commands
+
+	gencode_setup
+	cat <<-EOF
+
+	# Set permissions for directories used by Redmine
+	for subdir in files log tmp tmp/pdf public/plugin_assets
+	do
+	  test -d "\${subdir}" || mkdir "\${subdir}"
+	  test ! -f "\${subdir}/delete.me" || rm -f "\${subdir}/delete.me"
+
+	  chown -R $(quote "${redmine_user:?}"):$(quote "${redmine_user:?}") "\${subdir}"
+	  chmod -R 755 "\${subdir}"
+
+	  # NOTE: If you have files in these directories (e.g. restore files from
+	  # backup), make sure these files are not executable.
+	  find "\${subdir}" -type f -exec chmod -x {} +
+	done
+
+	# Make db/ writable by the redmine user to make SQLite databases in the default location work.
+	chown 0:$(quote "${redmine_user:?}") db
+	chmod 0775 db
+	EOF
+
+	echo 'adjusted permissions' >>"${__messages_out:?}"
+	do_reload=true
+
+	# Clear tmp
+	gencode_setup
+	cat <<-EOF
+
+	# Clear tmp
+	bundle_doas exec rake tmp:clear
+	EOF
+
+	echo 'cleared tmp' >>"${__messages_out:?}"
+
+	# Generate (session) secret token
+	gencode_setup
+	cat <<-EOF
+
+	# Secret (session) token
+	test -f config/initializers/secret_token.rb || {
+	  # NOTE: run as root, modifies config files
+	  bundle exec rake generate_secret_token
+
+	  chown 0:$(quote "${redmine_user:?}") config/initializers/secret_token.rb
+	  chmod 0750 config/initializers/secret_token.rb
+	}
+	EOF
+	do_reload=true
+fi
+
+################################################################################
+# Manipulate config
+
+config_should=$(
+	if test -s "${__object:?}/parameter/mail"
+	then
+		if echo ':sendmail' | cmp -s "${__object:?}/parameter/mail" -
+		then
+			printf 'email_delivery:\n  delivery_method: :sendmail\n'
+		else
+			# Parse given URL string, e.g.
+			# smtp://someone@example.com:hunter2@smtp.example.com:587?auth=:login
+
+			# Attention: q&d code ahead!
+			sed -n -e '1s#^\([^:]\{1,\}\)://\(\([^:]\{1,\}\):\(.*\)@\)\{0,1\}\([^:?/]\{1,\}\)\(:\([0-9]\{1,\}\)\)\{0,1\}\(?.*\)\{0,1\}$#type:\1user_name:\3password:\4address:\5port:\7query:\8#p' <"${__object:?}/parameter/mail" \
+			| awk '
+			  BEGIN { RS = "\034" }
+			  {
+				  k = substr($0, 1, index($0, ":")-1)
+				  v = substr($0, index($0, ":")+1)
+				  d[k] = v
+			  }
+			  END {
+				  print "email_delivery:"
+				  print "  delivery_method: :" d["type"]
+				  print "  " d["type"] "_settings:"
+
+				  split("address,port,user_name,password,query", skeys, ",")
+				  for (i = 1; i <= length(skeys); i++) {
+					  k = skeys[i]; v = d[k]
+					  if (k == "query") {
+						  sub(/^\?/, "", v)
+						  split(v, qopts, "[&;]")
+						  for (j = 1; j <= length(qopts); j++) {
+							  qk = substr(qopts[j], 1, index(qopts[j], "=")-1)
+							  qv = substr(qopts[j], index(qopts[j], "=")+1)
+							  print "    " qk ": " qv
+						  }
+					  } else if (v) {  # only if value is non-empty
+						  print "    " k ": " v
+					  }
+				  }
+			  }'
+		fi
+	fi
+
+	if test -s "${__object:?}/parameter/attachments-path"
+	then
+		printf 'attachments_storage_path: %s\n' "$(yaml_quote "$(cat "${__object:?}/parameter/attachments-path")")"
+	fi
+
+	printf 'mirror_plugins_assets_on_startup: false\n'
+
+	if test -f "${__object:?}/parameter/sudo-mode"
+	then
+		printf 'sudo_mode: true\n'
+	fi
+)
+
+if ! printf '%s\n' "${config_should}" | cmp -s "${__object:?}/explorer/config-values" - \
+|| test "${cksum_should}" != "${cksum_is}"
+then
+	gencode_setup
+	cat <<-EOF
+
+	if ! test -f $(quote "${install_dir:?}/config/configuration.yml") && test -f $(quote "${install_dir:?}/config/configuration.yml.example")
+	then
+	    cp $(quote "${install_dir:?}/config/configuration.yml.example") $(quote "${install_dir:?}/config/configuration.yml")
+	    chown 0:$(quote "${redmine_user}") $(quote "${install_dir:?}/config/configuration.yml")
+	    chmod 0640 $(quote "${install_dir:?}/config/configuration.yml")
+	fi
+
+	awk '
+	!in_prod_env
+	/^production:/ { in_prod_env = 1; next }
+	in_prod_env && /^[^ 	]/ {
+	    # print contents of stdin (indented with two spaces)
+	    system("sed -e '\''s/^/  /'\''")
+	    in_prod_env = 0
+
+	    print ""
+	    print
+	}
+	' $(quote "${install_dir:?}/config/configuration.yml") <<'DATA' >$(quote "${install_dir:?}/config/configuration.yml.tmp") \
+	&& cat $(quote "${install_dir:?}/config/configuration.yml.tmp") >$(quote "${install_dir:?}/config/configuration.yml")
+	${config_should:?}
+	DATA
+	rm $(quote "${install_dir:?}/config/configuration.yml.tmp")
+	EOF
+
+	echo 'config updated' >>"${__messages_out:?}"
+	do_reload=true
+fi
+
+
+################################################################################
+# DB migrations (and DB initialisation)
+
+if test "${migrations_state}" != 'present' || test "${cksum_should}" != "${cksum_is}"
+then
+	# Run DB migrations (if explorer reports "down" migrations or the code has
+	# changed, in which case the explorers result is outdated)
+
+	gencode_setup
+	cat <<-EOF
+
+	# DB management
+	db_version=\$(bundle_doas exec rake db:version | sed -n -e 's/^Current version: \([0-9]*\)$/\1/p')
+
+	bundle_doas exec rake db:migrate
+
+	if test \$((db_version)) -eq 0
+	then
+	  REDMINE_LANG=en
+	  export REDMINE_LANG
+	  bundle_doas exec rake redmine:load_default_data
+	fi
+	EOF
+
+	echo 'ran db migrations' >>"${__messages_out:?}"
+	do_reload=true
+fi
+
+
+################################################################################
+# Reload Redmine (if web server supports it)
+
+if ${do_reload:-false}
+then
+	printf '\ntouch %s && chown %s:%s %s || :\n' \
+		"$(quote "${install_dir:?}/tmp/restart.txt")" \
+		"$(quote "${redmine_user:?}")" \
+		"$(quote "${redmine_user:?}")" \
+		"$(quote "${install_dir:?}/tmp/restart.txt")"
+fi

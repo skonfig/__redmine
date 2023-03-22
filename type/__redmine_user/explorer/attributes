@@ -1,0 +1,76 @@
+#!/bin/sh -e
+#
+# 2021 Dennis Camera (dennis.camera at ssrq-sds-fds.ch)
+#
+# This file is part of the skonfig set __redmine.
+#
+# This set is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This set is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this set. If not, see <http://www.gnu.org/licenses/>.
+#
+# This explorer prints the attributes set on the user (if exists) in the format:
+# key=value
+#
+
+read -r install_dir <"${__object:?}/parameter/install-dir"
+svc_user=redmine
+
+RAILS_ENV=production
+export RAILS_ENV
+
+id "${svc_user}" >/dev/null 2>&1 || {
+	# $svc_user does not exist
+	exit 0
+}
+
+quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
+rails_cmd() {
+	_env=$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
+	su -l "${svc_user}" -s /bin/sh -c "cd $(quote "${install_dir}") && ${_env% } bundle exec rails runner $(quote "$*")"
+	unset _env
+}
+
+if test -s "${__object:?}/parameter/login"
+then
+	read -r __user_login <"${__object:?}/parameter/login"
+else
+	__user_login=${__object_id:?}
+fi
+export __user_login
+
+rails_cmd - <<'EOF'
+u = User.find_by(login: ENV["__user_login"])
+exit 0 if u.nil?
+
+attributes = u.attributes.map{ |k, v| [k, [v]] }.to_h
+
+# Ordering of emails is unspecified (except the first which is the "primary")
+attributes['emails'] = []
+attributes['emails'] << u.mail unless u.mail.nil?
+attributes['emails'] += u.email_addresses.where(is_default: false).order(:address).pluck(:address)
+
+# Resolve auth_source_id to name
+if attributes.key?('auth_source_id')
+  asid = attributes.delete('auth_source_id')&.at(0)
+  attributes['auth_source'] = [asid.nil? ? nil : AuthSource.find(asid)&.name]
+end
+
+# Generate password hash
+attributes['password_hash'] = ['$sha1$%s$%s' % [
+	attributes.delete('salt')&.at(0),
+	attributes.delete('hashed_password')&.at(0)
+	]]
+
+attributes.sort.each { |k, v|
+  v.each { |x| puts [k, x].join('=') }
+}
+EOF
