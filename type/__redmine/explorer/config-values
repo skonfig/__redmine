@@ -24,7 +24,8 @@ install_dir='/usr/local/share/redmine'
 
 # shellcheck disable=SC2015
 config_yml="${install_dir:?}/config/configuration.yml"
-test -d "${install_dir:?}" && test -f "${config_yml}" || {
+
+test -f "${config_yml}" || {
 	# absent
 	exit 0
 }
