@@ -150,14 +150,14 @@ in
 			# Boolean parameters
 			if test -f "${__object:?}/parameter/admin"
 			then
-				echo "admin=true"
+				echo 'admin=true'
 			else
-				echo "admin=false"
+				echo 'admin=false'
 			fi
 			if test -f "${__object:?}/parameter/must-change-password"
 			then
 				# Only set this flag if the parameter is used, otherwise leave.
-				echo "must_change_password=true"
+				echo 'must_change_password=true'
 			fi
 		)
 
