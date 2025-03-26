@@ -61,7 +61,7 @@ gencode_setup() {
 	bundle_doas() {
 	  _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
 	  su -l $(quote "${redmine_user}") -s /bin/sh -c $(quote "cd $(quote "${install_dir:?}") && ")"\${_env% } bundle \$*"
-	  unset _env
+	  unset -v _env
 	}
 	EOF
 	_is_set_up=true

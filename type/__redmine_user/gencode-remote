@@ -35,7 +35,7 @@ gencode_setup() {
 	rails_cmd() {  # does not quoting of arguments
 	    _env=\$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
 	    su -l $(quote "${redmine_user}") -s /bin/sh -c 'cd '$(quote "${install_dir}")" && \${_env% } bundle exec rails runner \$*"
-	    unset _env
+	    unset -v _env
 	}
 
 	EOF

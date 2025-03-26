@@ -36,7 +36,7 @@ quote() { printf '%s\n' "$*" | sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/'/"; }
 rails_cmd() {
 	_env=$(POSIXLY_CORRECT=1 export -p | sed -n -e 's/\(^\|.* \)\(\(BUNDLE\|RAILS\|REDMINE\|_\)_[^=]\{1,\}=.*\)$/\2/p' | tr '\n' ' ')
 	su -l "${svc_user}" -s /bin/sh -c "cd $(quote "${install_dir}") && ${_env% } bundle exec rails runner $(quote "$*")"
-	unset _env
+	unset -v _env
 }
 
 if test -s "${__object:?}/parameter/name"
