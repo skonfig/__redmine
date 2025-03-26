@@ -47,7 +47,7 @@ then
 	# NOTE: Because there could potentially be multiple coexisting Redmine
 	# installations on a system and therefore there exists a --name parameter,
 	# uniqueness of plugin names is not given.
-	# If a plugin is managed by another cdist object we error.
+	# If a plugin is managed by another object we error.
 	: "${__type:?}"  # make shellcheck happy
 	printf '%s: plugin %s is managed by another object (%s).\n' \
 		"${__type##*/}" "${plugin_name}" "$(tail -n +2 "${__object:?}/explorer/plugin-dir-state")" >&2

@@ -96,7 +96,7 @@ EXAMPLES
 
 .. code-block:: sh
 
-    # Install Redmine and keep its dependencies up to date (checked on every cdist run)
+    # Install Redmine and keep its dependencies up to date (checked on every run)
     __redmine --version latest --update-gems
 
 
